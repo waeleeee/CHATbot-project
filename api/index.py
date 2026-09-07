@@ -25,10 +25,6 @@ async def send_whatsapp_message(recipient_number: str, message_text: str):
     """
     Sends a WhatsApp text message to a user via Meta Graph API.
     """
-    if not WHATSAPP_PHONE_NUMBER_ID or not WHATSAPP_ACCESS_TOKEN:
-        print("[-] Missing WHATSAPP_PHONE_NUMBER_ID or WHATSAPP_ACCESS_TOKEN.")
-        return
-
     url = f"https://graph.facebook.com/v20.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
     headers = {
         "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
@@ -58,9 +54,15 @@ async def send_whatsapp_message(recipient_number: str, message_text: str):
 # ==========================================
 async def generate_ai_reply(user_message: str, contact_name: str) -> str:
     """
-    Generates a response using KIE or intelligent assistant.
+    Intelligent chatbot response.
     """
-    return f"3aslema {contact_name}! 🤖 Waslatni rseltek: \"{user_message}\". El Chatbot mte3ek yekhdem mrigel!"
+    lower_msg = user_message.lower()
+    if "chkon" in lower_msg or "chkoun" in lower_msg:
+        return f"3aslema {contact_name}! 🤖 Ena el Chatbot intelligent mte3ek fi WhatsApp, ma5doum b Python & FastAPI w connecte b l'AI!"
+    elif "chtajm" in lower_msg or "chneya taaml" in lower_msg or "faserli" in lower_msg:
+        return f"Najem njeweb el klyanat 24/7, nfasrelhom les services, n'enregistri les commandes, w n3awnek fi ay 7aja t7ebha! 🚀"
+    else:
+        return f"3aslema {contact_name}! 🤖 Jawbtini b: \"{user_message}\". Kifeh najem n3awnek?"
 
 
 # ==========================================
@@ -90,7 +92,9 @@ def handle_verify(hub_mode: str, hub_verify_token: str, hub_challenge: str):
 async def handle_post_message(request: Request):
     try:
         body = await request.json()
-    except Exception:
+        print(f"\n[WEBHOOK RECEIVED] {json.dumps(body)}")
+    except Exception as e:
+        print(f"Error parsing JSON: {e}")
         return {"status": "ignored"}
 
     entry = body.get("entry", [])
@@ -108,21 +112,15 @@ async def handle_post_message(request: Request):
                 sender = message.get("from")
                 msg_type = message.get("type")
 
-                print("\n" + "=" * 50)
-                print(f"[*] INCOMING WHATSAPP MESSAGE FROM {sender}: {message}")
-
                 if msg_type == "text":
                     text_body = message.get("text", {}).get("body", "")
-                    print(f"  Message Text : {text_body}")
-                    # Await reply directly
+                    print(f"[*] Dispatching reply to {sender} for message: '{text_body}'")
                     await process_and_reply(sender, contact_name, text_body)
-
-                print("=" * 50 + "\n")
 
     return {"status": "ok"}
 
 
-# Catch-all router to handle all paths and rewrites seamlessly on Vercel
+# Catch-all router
 @app.api_route("/{path_name:path}", methods=["GET", "POST", "HEAD"])
 async def route_all(request: Request, path_name: str = ""):
     if request.method in ("GET", "HEAD"):
