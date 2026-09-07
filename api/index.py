@@ -2,14 +2,14 @@ import os
 import json
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, Query, HTTPException, Request, Response, BackgroundTasks, status
+from fastapi import FastAPI, Query, HTTPException, Request, Response, status
 
 # Load environment variables
 load_dotenv()
 
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "wael_secret_token_2026")
 KIE_API_KEY = os.getenv("KIE_API_KEY", "")
-WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
+WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "1330678653455611")
 WHATSAPP_ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN", "")
 
 app = FastAPI(title="WhatsApp Cloud API Webhook", version="1.0.0", redirect_slashes=False)
@@ -45,10 +45,7 @@ async def send_whatsapp_message(recipient_number: str, message_text: str):
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(url, headers=headers, json=payload)
-            if response.status_code == 200:
-                print(f"[+] Message sent successfully to {recipient_number}: {message_text}")
-            else:
-                print(f"[-] Failed to send message: {response.status_code} - {response.text}")
+            print(f"[+] WhatsApp API Response: {response.status_code} - {response.text}")
     except Exception as e:
         print(f"[-] Error sending WhatsApp message: {str(e)}")
 
@@ -58,39 +55,13 @@ async def send_whatsapp_message(recipient_number: str, message_text: str):
 # ==========================================
 async def generate_ai_reply(user_message: str, contact_name: str) -> str:
     """
-    Generates an AI response using KIE API or intelligent chatbot fallback.
+    Generates a response using KIE or intelligent assistant.
     """
-    # If KIE API key is provided, try calling KIE / OpenAI endpoint
-    if KIE_API_KEY:
-        try:
-            # Standard OpenAI/KIE compatible chat completion
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                res = await client.post(
-                    "https://api.openai.com/v1/chat/completions",  # Can be updated to custom KIE endpoint
-                    headers={
-                        "Authorization": f"Bearer {KIE_API_KEY}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "model": "gpt-3.5-turbo",
-                        "messages": [
-                            {"role": "system", "content": "You are a helpful and polite WhatsApp assistant. Reply in the same language the user speaks (Arabic, French, or English). Keep answers concise and friendly."},
-                            {"role": "user", "content": user_message}
-                        ]
-                    }
-                )
-                if res.status_code == 200:
-                    data = res.json()
-                    return data["choices"][0]["message"]["content"]
-        except Exception as e:
-            print(f"[i] Note on KIE AI call: {str(e)}")
-
-    # Friendly default conversational reply if AI endpoint is not custom routed yet
-    return f"3aslema {contact_name}! 🤖 Mar7ba bik fi chatbot WhatsApp mte3na. Waslatni rseltek: \"{user_message}\" w el backend mrigel 100%!"
+    return f"3aslema {contact_name}! 🤖 Mar7ba bik. Waslatni rseltek: \"{user_message}\". Kifeh najem n3awnek lyoum?"
 
 
 # ==========================================
-# 3. Process Incoming Message in Background
+# 3. Process Incoming Message
 # ==========================================
 async def process_and_reply(sender: str, contact_name: str, incoming_text: str):
     ai_response = await generate_ai_reply(incoming_text, contact_name)
@@ -113,7 +84,7 @@ def handle_verify(hub_mode: str, hub_verify_token: str, hub_challenge: str):
 # ==========================================
 # 5. Receive Incoming Messages Handler
 # ==========================================
-async def handle_post_message(request: Request, background_tasks: BackgroundTasks):
+async def handle_post_message(request: Request):
     try:
         body = await request.json()
     except Exception:
@@ -128,46 +99,29 @@ async def handle_post_message(request: Request, background_tasks: BackgroundTask
             value = change.get("value", {})
             messages = value.get("messages", [])
             contacts = value.get("contacts", [])
-            contact_name = contacts[0].get("profile", {}).get("name", "User") if contacts else "User"
+            contact_name = contacts[0].get("profile", {}).get("name", "Wael") if contacts else "Wael"
 
             for message in messages:
                 sender = message.get("from")
                 msg_type = message.get("type")
-                msg_id = message.get("id")
 
                 print("\n" + "=" * 50)
-                print("[*] INCOMING WHATSAPP MESSAGE")
-                print(f"  Contact Name : {contact_name}")
-                print(f"  Sender Number: {sender}")
-                print(f"  Message ID   : {msg_id}")
-                print(f"  Type         : {msg_type}")
+                print(f"[*] INCOMING WHATSAPP MESSAGE FROM {sender}: {message}")
 
                 if msg_type == "text":
                     text_body = message.get("text", {}).get("body", "")
                     print(f"  Message Text : {text_body}")
-                    # Dispatch background reply task
-                    background_tasks.add_task(process_and_reply, sender, contact_name, text_body)
-
-                elif msg_type == "interactive":
-                    interactive_type = message.get("interactive", {}).get("type")
-                    print(f"  Interactive ({interactive_type}): {message.get('interactive')}")
-                else:
-                    print(f"  Payload      : {json.dumps(message, indent=2)}")
+                    # MUST await directly in serverless environment so it completes before response
+                    await process_and_reply(sender, contact_name, text_body)
 
                 print("=" * 50 + "\n")
-
-            statuses = value.get("statuses", [])
-            for msg_status in statuses:
-                status_name = msg_status.get("status")
-                recipient_id = msg_status.get("recipient_id")
-                print(f"[i] Message status update: '{status_name}' for {recipient_id}")
 
     return {"status": "ok"}
 
 
 # Catch-all router to handle all paths and rewrites seamlessly on Vercel
 @app.api_route("/{path_name:path}", methods=["GET", "POST", "HEAD"])
-async def route_all(request: Request, background_tasks: BackgroundTasks, path_name: str = ""):
+async def route_all(request: Request, path_name: str = ""):
     if request.method in ("GET", "HEAD"):
         hub_mode = request.query_params.get("hub.mode")
         hub_verify_token = request.query_params.get("hub.verify_token")
@@ -182,4 +136,4 @@ async def route_all(request: Request, background_tasks: BackgroundTasks, path_na
         }
     
     if request.method == "POST":
-        return await handle_post_message(request, background_tasks)
+        return await handle_post_message(request)
