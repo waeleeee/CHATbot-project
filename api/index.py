@@ -3,7 +3,7 @@ import csv
 import json
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, Query, HTTPException, Request, Response, status
+from fastapi import FastAPI, Query, HTTPException, Request, Response, status, BackgroundTasks
 
 # Load environment variables
 load_dotenv()
@@ -23,19 +23,13 @@ app = FastAPI(title="WhatsApp AI Chatbot", version="2.0.0", redirect_slashes=Fal
 # 1. Load Products from CSV
 # ==========================================
 def load_products_context() -> str:
-    """
-    Reads products.csv and returns it as a formatted string context for the AI.
-    """
     products_path = os.path.join(os.path.dirname(__file__), "..", "products.csv")
-    
     try:
         with open(products_path, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             rows = list(reader)
-
         if not rows:
             return "No products available."
-
         lines = ["Here is the product catalog:\n"]
         for row in rows:
             lines.append(
@@ -47,13 +41,12 @@ def load_products_context() -> str:
         return "Product catalog is currently unavailable."
 
 
-# Load products once at startup
 PRODUCTS_CONTEXT = load_products_context()
-print(f"[+] Loaded product catalog:\n{PRODUCTS_CONTEXT}")
+print(f"[+] Loaded product catalog with {len(PRODUCTS_CONTEXT.split(chr(10)))} lines")
 
 
 # ==========================================
-# 2. Helper: Send WhatsApp Message
+# 2. Send WhatsApp Message
 # ==========================================
 async def send_whatsapp_message(recipient_number: str, message_text: str):
     url = f"https://graph.facebook.com/v20.0/{WHATSAPP_PHONE_NUMBER_ID}/messages"
@@ -71,26 +64,25 @@ async def send_whatsapp_message(recipient_number: str, message_text: str):
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(url, headers=headers, json=payload)
-            print(f"[+] WhatsApp sent to {recipient_number}: {response.status_code}")
+            print(f"[+] WhatsApp sent: {response.status_code}")
     except Exception as e:
-        print(f"[-] Error sending WhatsApp message: {str(e)}")
+        print(f"[-] WhatsApp send error: {str(e)}")
 
 
 # ==========================================
-# 3. Helper: Call KIE GPT-5.2 AI
+# 3. Call KIE GPT-5.2 AI
 # ==========================================
 async def call_kie_ai(user_message: str, contact_name: str) -> str:
-    """
-    Sends user message to KIE GPT-5.2 with product context and returns AI reply.
-    """
-    system_prompt = f"""You are a helpful WhatsApp sales assistant. Answer questions about products from the catalog below.
-Be friendly, concise, and answer in the same language the user writes in (Arabic dialect, French, or English).
-If the user asks about a product not in the catalog, politely say it is not available.
+    system_prompt = f"""You are a helpful WhatsApp sales assistant. Your job is to help customers find products and answer their questions.
+Reply in the SAME language the user writes in (Tunisian Arabic dialect, French, or English).
+Be friendly, concise, and helpful.
 
 {PRODUCTS_CONTEXT}
+
+If a product is not in the catalog, say it is not available and suggest the closest alternative.
 """
     try:
-        async with httpx.AsyncClient(timeout=25.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             res = await client.post(
                 "https://api.kie.ai/gpt-5-2/v1/chat/completions",
                 headers={
@@ -108,98 +100,88 @@ If the user asks about a product not in the catalog, politely say it is not avai
                             "content": [{"type": "text", "text": user_message}]
                         }
                     ],
-                    "reasoning_effort": "high"
+                    "reasoning_effort": "low"  # faster response!
                 }
             )
-
             if res.status_code == 200:
                 data = res.json()
                 reply = data["choices"][0]["message"]["content"]
-                print(f"[+] KIE GPT-5.2 reply generated")
+                print(f"[+] KIE reply received")
                 return reply
             else:
-                print(f"[-] KIE API error: {res.status_code} - {res.text}")
-                return f"Marhba {contact_name}! Sorry, the AI is temporarily unavailable. Please try again."
-
+                print(f"[-] KIE error: {res.status_code} {res.text[:100]}")
     except Exception as e:
-        print(f"[-] KIE AI call failed: {str(e)}")
-        return f"Marhba {contact_name}! Sorry, I encountered an error. Please try again."
+        print(f"[-] KIE call error: {str(e)}")
+
+    return f"Marhba {contact_name}! Sorry, AI is temporarily busy. Please try again in a moment."
 
 
 # ==========================================
-# 4. Process Incoming Message & Reply
+# 4. Background: Process & Reply
 # ==========================================
-async def process_and_reply(sender: str, contact_name: str, incoming_text: str):
-    print(f"[*] Processing message from {contact_name} ({sender}): '{incoming_text}'")
-    ai_response = await call_kie_ai(incoming_text, contact_name)
-    await send_whatsapp_message(sender, ai_response)
+async def process_and_reply(sender: str, contact_name: str, text: str):
+    print(f"[BG] Processing from {contact_name} ({sender}): {text}")
+    ai_reply = await call_kie_ai(text, contact_name)
+    await send_whatsapp_message(sender, ai_reply)
+    print(f"[BG] Done - replied to {sender}")
 
 
 # ==========================================
-# 5. Webhook Verification Handler
+# 5. Webhook Verification
 # ==========================================
-def handle_verify(hub_mode: str, hub_verify_token: str, hub_challenge: str):
-    print(f"[*] Verification request received - Mode: {hub_mode}")
+def handle_verify(hub_mode, hub_verify_token, hub_challenge):
+    print(f"[*] Verification: mode={hub_mode}")
     if hub_mode == "subscribe" and hub_verify_token == VERIFY_TOKEN:
-        print("[+] Webhook verified successfully!")
-        return Response(content=str(hub_challenge), media_type="text/plain", status_code=status.HTTP_200_OK)
-    print("[-] Webhook verification failed.")
-    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Verification token mismatch")
+        print("[+] Webhook verified!")
+        return Response(content=str(hub_challenge), media_type="text/plain", status_code=200)
+    raise HTTPException(status_code=403, detail="Token mismatch")
 
 
 # ==========================================
-# 6. Receive Incoming Messages Handler
+# 6. Receive Messages
 # ==========================================
-async def handle_post_message(request: Request):
+async def handle_post_message(request: Request, background_tasks: BackgroundTasks):
     try:
         body = await request.json()
-        print(f"\n[WEBHOOK] Received: {json.dumps(body)[:200]}")
-    except Exception as e:
-        print(f"[-] JSON parse error: {e}")
+    except Exception:
         return {"status": "ignored"}
 
-    entry = body.get("entry", [])
-    if not entry:
-        return {"status": "no_entry"}
-
-    for item in entry:
+    for item in body.get("entry", []):
         for change in item.get("changes", []):
             value = change.get("value", {})
-            messages = value.get("messages", [])
             contacts = value.get("contacts", [])
             contact_name = contacts[0].get("profile", {}).get("name", "Client") if contacts else "Client"
 
-            for message in messages:
+            for message in value.get("messages", []):
                 sender = message.get("from")
                 msg_type = message.get("type")
-                print(f"\n[MSG] From: {contact_name} ({sender}) | Type: {msg_type}")
+                print(f"[MSG] {contact_name} ({sender}): type={msg_type}")
 
                 if msg_type == "text":
                     text_body = message.get("text", {}).get("body", "")
-                    print(f"[MSG] Content: {text_body}")
-                    await process_and_reply(sender, contact_name, text_body)
+                    print(f"[MSG] Text: {text_body}")
+                    # Use background task so Meta gets 200 OK immediately
+                    # while AI reply is being processed
+                    background_tasks.add_task(process_and_reply, sender, contact_name, text_body)
 
     return {"status": "ok"}
 
 
 # ==========================================
-# 7. Main Router (Catch-All for Vercel)
+# 7. Main Router
 # ==========================================
 @app.api_route("/{path_name:path}", methods=["GET", "POST", "HEAD"])
-async def route_all(request: Request, path_name: str = ""):
+async def route_all(request: Request, background_tasks: BackgroundTasks, path_name: str = ""):
     if request.method in ("GET", "HEAD"):
         hub_mode = request.query_params.get("hub.mode")
         hub_verify_token = request.query_params.get("hub.verify_token")
         hub_challenge = request.query_params.get("hub.challenge")
-
-        if hub_mode or hub_verify_token or hub_challenge:
+        if hub_mode or hub_challenge:
             return handle_verify(hub_mode, hub_verify_token, hub_challenge)
-
         return {
-            "status": "WhatsApp AI Chatbot is running",
-            "ai_model": "KIE GPT-5.2",
-            "products_loaded": len(PRODUCTS_CONTEXT.split("\n")) - 1
+            "status": "WhatsApp AI Chatbot running",
+            "ai": "KIE GPT-5.2",
+            "products": len(PRODUCTS_CONTEXT.split("\n")) - 1
         }
-
     if request.method == "POST":
-        return await handle_post_message(request)
+        return await handle_post_message(request, background_tasks)
