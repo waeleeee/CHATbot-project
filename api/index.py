@@ -8,7 +8,7 @@ from fastapi import FastAPI, HTTPException, Request, Response, status
 load_dotenv()
 
 VERIFY_TOKEN        = os.getenv("VERIFY_TOKEN", "wael_secret_token_2026")
-KIE_API_KEY         = os.getenv("KIE_API_KEY", "401c276f82c61ade9b9a6e70df2e33cd")
+KIE_API_KEY         = os.getenv("KIE_API_KEY", "156a09805aa758a43f3188520ccf8f88")
 PHONE_NUMBER_ID     = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "1330678653455611")
 ACCESS_TOKEN        = os.getenv("WHATSAPP_ACCESS_TOKEN",
     "EAAZAmTJHgOd0BSfkIIBymGZBemelNaRwN9p5pXgZBZAfIlDDvfG04nechwZBHnVOyfuvnZABV1SwIx6MtTv5wYFXCzzX9pLgarVXvAJujyn3oIhnKlaYWWHREZANBptSZBesGDodZAaN4Ro7hE3Io5S5ZBwvgf6OP83e5ZB8b6D6ZAzTGxdJaCDsA6FxkZAKEKOBNlOuho4zZCo7UmYdXY5wF09YY705Tm5bNiBwSTsQM5Vt8D6gUAO45J6DiWkHZAR6PNjU6WkFu3EP8Sbo2ZBn550NNMON")
