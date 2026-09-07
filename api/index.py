@@ -6,26 +6,26 @@ from fastapi import FastAPI, Query, HTTPException, Request, Response, status
 # Load environment variables from .env
 load_dotenv()
 
-VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "your_custom_secret_verify_token")
+VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "wael_secret_token_2026")
 
 app = FastAPI(title="WhatsApp Cloud API Webhook", version="1.0.0", redirect_slashes=False)
 
 
 # ==========================================
-# 1. Webhook Verification (GET endpoint)
+# 1. Webhook Verification Handler
 # ==========================================
 def handle_verify(hub_mode: str, hub_verify_token: str, hub_challenge: str):
     print(f"[*] Verification request received - Mode: {hub_mode}")
     if hub_mode == "subscribe" and hub_verify_token == VERIFY_TOKEN:
         print("[+] Webhook verified successfully!")
-        return Response(content=hub_challenge, media_type="text/plain", status_code=status.HTTP_200_OK)
+        return Response(content=str(hub_challenge), media_type="text/plain", status_code=status.HTTP_200_OK)
     
     print("[-] Webhook verification failed. Token mismatch.")
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Verification token mismatch")
 
 
 # ==========================================
-# 2. Receive Incoming Messages (POST endpoint)
+# 2. Receive Incoming Messages Handler
 # ==========================================
 async def handle_post_message(request: Request):
     try:
@@ -76,49 +76,21 @@ async def handle_post_message(request: Request):
     return {"status": "ok"}
 
 
-# Define all possible routes
-@app.get("/")
-@app.get("/api")
-@app.get("/api/index")
-def root():
-    return {"status": "WhatsApp Webhook is running", "message": "Backend is live and healthy"}
-
-
-@app.get("/webhook")
-@app.get("/api/webhook")
-@app.get("/api/index/webhook")
-def verify_webhook(
-    hub_mode: str = Query(None, alias="hub.mode"),
-    hub_verify_token: str = Query(None, alias="hub.verify_token"),
-    hub_challenge: str = Query(None, alias="hub.challenge"),
-):
-    return handle_verify(hub_mode, hub_verify_token, hub_challenge)
-
-
-@app.post("/webhook")
-@app.post("/api/webhook")
-@app.post("/api/index/webhook")
-async def receive_webhook(request: Request):
-    return await handle_post_message(request)
-
-
-# Catch-all router to handle any path format from Vercel
-@app.api_route("/{path_name:path}", methods=["GET", "POST"])
-async def catch_all(request: Request, path_name: str):
-    # Normalize path
-    clean_path = path_name.strip("/")
-    
-    if request.method == "GET":
-        if "webhook" in clean_path:
-            hub_mode = request.query_params.get("hub.mode")
-            hub_verify_token = request.query_params.get("hub.verify_token")
-            hub_challenge = request.query_params.get("hub.challenge")
-            if hub_challenge:
-                return handle_verify(hub_mode, hub_verify_token, hub_challenge)
+# Catch-all router to handle all paths and rewrites seamlessly on Vercel
+@app.api_route("/{path_name:path}", methods=["GET", "POST", "HEAD"])
+async def route_all(request: Request, path_name: str = ""):
+    if request.method == "GET" or request.method == "HEAD":
+        hub_mode = request.query_params.get("hub.mode")
+        hub_verify_token = request.query_params.get("hub.verify_token")
+        hub_challenge = request.query_params.get("hub.challenge")
+        
+        # If this is Meta's verification handshake
+        if hub_mode or hub_verify_token or hub_challenge:
+            return handle_verify(hub_mode, hub_verify_token, hub_challenge)
+            
         return {
             "status": "WhatsApp Webhook is running",
-            "received_path": request.url.path,
-            "path_name": path_name
+            "message": "Backend is live and healthy"
         }
     
     if request.method == "POST":
