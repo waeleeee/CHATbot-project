@@ -12,14 +12,16 @@ app = FastAPI(title="WhatsApp Cloud API Webhook", version="1.0.0")
 
 
 @app.get("/")
+@app.get("/api")
 def root():
-    return {"status": "WhatsApp Webhook is running"}
+    return {"status": "WhatsApp Webhook is running", "message": "Backend is live and healthy"}
 
 
 # ==========================================
 # 1. Webhook Verification (GET endpoint)
 # ==========================================
 @app.get("/webhook")
+@app.get("/api/webhook")
 def verify_webhook(
     hub_mode: str = Query(None, alias="hub.mode"),
     hub_verify_token: str = Query(None, alias="hub.verify_token"),
@@ -44,6 +46,7 @@ def verify_webhook(
 # 2. Receive Incoming Messages (POST endpoint)
 # ==========================================
 @app.post("/webhook")
+@app.post("/api/webhook")
 async def receive_webhook(request: Request):
     """
     Receives incoming WhatsApp webhook payloads (messages, status updates, reactions).
