@@ -8,9 +8,12 @@ from fastapi import FastAPI, Query, HTTPException, Request, Response, status
 load_dotenv()
 
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "wael_secret_token_2026")
-KIE_API_KEY = os.getenv("KIE_API_KEY", "")
+KIE_API_KEY = os.getenv("KIE_API_KEY", "401c276f82c61ade9b9a6e70df2e33cd")
 WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "1330678653455611")
-WHATSAPP_ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN", "")
+WHATSAPP_ACCESS_TOKEN = os.getenv(
+    "WHATSAPP_ACCESS_TOKEN",
+    "EAAZAmTJHgOd0BSVErocbnYroJZB0BYJxhSM2k5EJrieuds5MIcCSxfZCZCEgoNtBzZAxupZCkCnZAvZBl27TVzOShHyC569D6e74H1YMW4RwnGV3wuwZBvNlhRrw98RG1mn4sYsgpCbuWK5slpBiPSt0FVFCDwJZC45s25riLkADsJFyYNW1RkYDXdyoRlEmgTRypwp4AaaEeVLZCi12FGXozy6mA46K9jM0ZCbMJeiDrzNMd59fCt4ZCTzMX9wY5CsIyPQpFE2t3831O4MZCWUCe42l9w"
+)
 
 app = FastAPI(title="WhatsApp Cloud API Webhook", version="1.0.0", redirect_slashes=False)
 
@@ -57,7 +60,7 @@ async def generate_ai_reply(user_message: str, contact_name: str) -> str:
     """
     Generates a response using KIE or intelligent assistant.
     """
-    return f"3aslema {contact_name}! 🤖 Mar7ba bik. Waslatni rseltek: \"{user_message}\". Kifeh najem n3awnek lyoum?"
+    return f"3aslema {contact_name}! 🤖 Waslatni rseltek: \"{user_message}\". El Chatbot mte3ek yekhdem mrigel!"
 
 
 # ==========================================
@@ -111,7 +114,7 @@ async def handle_post_message(request: Request):
                 if msg_type == "text":
                     text_body = message.get("text", {}).get("body", "")
                     print(f"  Message Text : {text_body}")
-                    # MUST await directly in serverless environment so it completes before response
+                    # Await reply directly
                     await process_and_reply(sender, contact_name, text_body)
 
                 print("=" * 50 + "\n")
